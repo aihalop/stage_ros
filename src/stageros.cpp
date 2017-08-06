@@ -414,6 +414,7 @@ StageNode::UpdateWorld()
 void
 StageNode::WorldCallback()
 {
+    printf("! worldcallback !!!\n");
   if( ! ros::ok() ) {
     ROS_INFO( "ros::ok() is false. Quitting." );
     this->world->QuitAll();
@@ -450,8 +451,8 @@ StageNode::WorldCallback()
             Stg::ModelRanger const* lasermodel = robotmodel->lasermodels[s];
             const std::vector<Stg::ModelRanger::Sensor>& sensors = lasermodel->GetSensors();
 
-            if( sensors.size() > 1 )
-                ROS_WARN( "ROS Stage currently supports rangers with 1 sensor only." );
+            if( sensors.size() > 2 )
+                ROS_WARN( "ROS Stage currently supports rangers with 2 sensor only." );
 
             // for now we access only the zeroth sensor of the ranger - good
             // enough for most laser models that have a single beam origin
