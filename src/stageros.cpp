@@ -46,6 +46,7 @@
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/CameraInfo.h>
+#include <sensor_msgs/Range.h>
 #include <nav_msgs/Odometry.h>
 #include <geometry_msgs/Twist.h>
 #include <rosgraph_msgs/Clock.h>
@@ -95,6 +96,7 @@ private:
         std::vector<ros::Publisher> depth_pubs; //multiple depths
         std::vector<ros::Publisher> camera_pubs; //multiple cameras
         std::vector<ros::Publisher> laser_pubs; //multiple lasers
+	std::vector<ros::Publisher> sonar_pubs; //multiple lasers
 
         ros::Subscriber cmdvel_sub; //one cmd_vel subscriber
     };
@@ -364,6 +366,9 @@ StageNode::SubscribeModels()
         new_robot->ground_truth_pub = n_.advertise<nav_msgs::Odometry>(mapName(BASE_POSE_GROUND_TRUTH, r, static_cast<Stg::Model*>(new_robot->positionmodel)), 10);
         new_robot->cmdvel_sub = n_.subscribe<geometry_msgs::Twist>(mapName(CMD_VEL, r, static_cast<Stg::Model*>(new_robot->positionmodel)), 10, boost::bind(&StageNode::cmdvelReceived, this, r, _1));
 
+	
+
+	/*
         for (size_t s = 0;  s < new_robot->lasermodels.size(); ++s)
         {
             if (new_robot->lasermodels.size() == 1)
@@ -372,6 +377,7 @@ StageNode::SubscribeModels()
                 new_robot->laser_pubs.push_back(n_.advertise<sensor_msgs::LaserScan>(mapName(BASE_SCAN, r, s, static_cast<Stg::Model*>(new_robot->positionmodel)), 10));
 
         }
+	*/
 
         for (size_t s = 0;  s < new_robot->cameramodels.size(); ++s)
         {
@@ -388,6 +394,9 @@ StageNode::SubscribeModels()
                 new_robot->camera_pubs.push_back(n_.advertise<sensor_msgs::CameraInfo>(mapName(CAMERA_INFO, r, s, static_cast<Stg::Model*>(new_robot->positionmodel)), 10));
             }
         }
+
+	new_robot->laser_pubs.push_back(n_.advertise<sensor_msgs::LaserScan>("scan", 10));
+	new_robot->sonar_pubs.push_back(n_.advertise<sensor_msgs::Range>("ultrasonic", 10));
 
         this->robotmodels_.push_back(new_robot);
     }
@@ -429,7 +438,7 @@ StageNode::WorldCallback()
     if(this->sim_time.sec == 0 && this->sim_time.nsec == 0)
     {
         ROS_DEBUG("Skipping initial simulation step, to avoid publishing clock==0");
-        return;
+         return;
     }
 
     // TODO make this only affect one robot if necessary
@@ -445,6 +454,74 @@ StageNode::WorldCallback()
     {
         StageRobot const * robotmodel = this->robotmodels_[r];
 
+	/* Publish Laser sensor msg */
+	const std::vector<Stg::ModelRanger::Sensor>& sensors = robotmodel->lasermodels[0]->GetSensors();
+	const Stg::ModelRanger::Sensor& laser = sensors[0];
+
+	sensor_msgs::LaserScan msg;
+	msg.angle_min = -laser.fov/2.0;
+	msg.angle_max = +laser.fov/2.0;
+	msg.angle_increment = laser.fov/(double)(laser.sample_count-1);
+	msg.range_min = laser.range.min;
+	msg.range_max = laser.range.max;
+	msg.ranges.resize(laser.ranges.size());
+	msg.intensities.resize(laser.intensities.size());
+
+	for(unsigned int i = 0; i < laser.ranges.size(); i++) {
+	    msg.ranges[i] = laser.ranges[i];
+	    msg.intensities[i] = laser.intensities[i];
+	}
+	
+	msg.header.frame_id = mapName("base_laser_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel));
+
+	msg.header.stamp = sim_time;
+	robotmodel->laser_pubs[0].publish(msg);
+	Stg::Pose lp = robotmodel->lasermodels[0]->GetPose();
+	tf::Quaternion laserQ;
+	laserQ.setRPY(0.0, 0.0, lp.a);
+	tf::Transform txLaser =  tf::Transform(laserQ, tf::Point(lp.x, lp.y, robotmodel->positionmodel->GetGeom().size.z + lp.z));
+
+	tf.sendTransform(tf::StampedTransform(txLaser, sim_time,
+					      mapName("base_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel)),
+					      mapName("base_laser_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel))));
+
+
+	/* Publish Sonar sensor msg */
+	const std::vector<Stg::ModelRanger::Sensor>& sonar_sensors = robotmodel->lasermodels[1]->GetSensors();
+	const Stg::ModelRanger::Sensor& sonar = sonar_sensors[0];
+	sensor_msgs::Range sonar_msg;
+	sonar_msg.header.stamp = sim_time;
+	sonar_msg.header.frame_id = "base_sonar_link";
+	// sonar_msg.ULTRASOUND = 1;
+	// sonar_msg.INFRARED = 0;
+	sonar_msg.field_of_view = sonar.fov;
+	sonar_msg.min_range = sonar.range.min;
+	sonar_msg.max_range = sonar.range.max;
+	
+	int i;
+	float min_range = sonar.ranges[0];
+	for (i = 1; i < sonar.ranges.size(); i++) {
+	    printf("%f, ", sonar.ranges[i]);
+	    if (min_range > sonar.ranges[i]) {
+		min_range = sonar.ranges[i];
+	    }
+	}
+
+	sonar_msg.range = min_range;
+
+	robotmodel->sonar_pubs[0].publish(sonar_msg);
+
+	Stg::Pose sonarlp = robotmodel->lasermodels[1]->GetPose();
+	tf::Quaternion sonarQ;
+	sonarQ.setRPY(0.0, 0.0, lp.a);
+	tf::Transform txSonar =  tf::Transform(sonarQ, tf::Point(sonarlp.x, sonarlp.y, robotmodel->positionmodel->GetGeom().size.z + sonarlp.z));
+
+	tf.sendTransform(tf::StampedTransform(txSonar, sim_time,
+					      mapName("base_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel)),
+					      mapName("base_sonar_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel))));
+
+
+	/*
         //loop on the laser devices for the current robot
         for (size_t s = 0; s < robotmodel->lasermodels.size(); ++s)
         {
@@ -501,7 +578,8 @@ StageNode::WorldCallback()
                                                       mapName("base_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel)),
                                                       mapName("base_laser_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel))));
         }
-
+	*/
+	
         //the position of the robot
         tf.sendTransform(tf::StampedTransform(tf::Transform::getIdentity(),
                                               sim_time,
