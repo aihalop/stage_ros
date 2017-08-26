@@ -53,6 +53,8 @@
 #include <std_srvs/Empty.h>
 
 #include "tf/transform_broadcaster.h"
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_ros/transform_broadcaster.h>
 
 #define USAGE "stageros <worldfile>"
 #define IMAGE "image"
@@ -128,6 +130,7 @@ private:
     const char *mapName(const char *name, size_t robotID, size_t deviceID, Stg::Model* mod) const;
 
     tf::TransformBroadcaster tf;
+    tf2_ros::TransformBroadcaster br;
 
     // Last time that we received a velocity command
     ros::Time base_last_cmd;
@@ -414,7 +417,6 @@ StageNode::UpdateWorld()
 void
 StageNode::WorldCallback()
 {
-    printf("! worldcallback !!!\n");
   if( ! ros::ok() ) {
     ROS_INFO( "ros::ok() is false. Quitting." );
     this->world->QuitAll();
@@ -491,22 +493,57 @@ StageNode::WorldCallback()
             tf::Quaternion laserQ;
             laserQ.setRPY(0.0, 0.0, lp.a);
             tf::Transform txLaser =  tf::Transform(laserQ, tf::Point(lp.x, lp.y, robotmodel->positionmodel->GetGeom().size.z + lp.z));
+            geometry_msgs::TransformStamped txLaserTransformStamped;
 
-            if (robotmodel->lasermodels.size() > 1)
+            if (robotmodel->lasermodels.size() > 1) {
+                /*
                 tf.sendTransform(tf::StampedTransform(txLaser, sim_time,
                                                       mapName("base_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel)),
                                                       mapName("base_laser_link", r, s, static_cast<Stg::Model*>(robotmodel->positionmodel))));
-            else
+                */
+                txLaserTransformStamped.header.stamp = sim_time;
+                txLaserTransformStamped.header.frame_id = "base_link";
+                txLaserTransformStamped.child_frame_id = "base_laser_link";
+                txLaserTransformStamped.transform.translation.x = lp.x;
+                txLaserTransformStamped.transform.translation.y = lp.y;
+                txLaserTransformStamped.transform.translation.z = robotmodel->positionmodel->GetGeom().size.z + lp.z;
+                tf2::Quaternion q;
+                q.setRPY(0, 0, lp.a);
+                txLaserTransformStamped.transform.rotation.x = q.x();
+                txLaserTransformStamped.transform.rotation.y = q.y();
+                txLaserTransformStamped.transform.rotation.z = q.z();
+                txLaserTransformStamped.transform.rotation.w = q.w();
+                br.sendTransform(txLaserTransformStamped);
+            } else
                 tf.sendTransform(tf::StampedTransform(txLaser, sim_time,
                                                       mapName("base_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel)),
                                                       mapName("base_laser_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel))));
         }
 
         //the position of the robot
+        /*
         tf.sendTransform(tf::StampedTransform(tf::Transform::getIdentity(),
                                               sim_time,
                                               mapName("base_footprint", r, static_cast<Stg::Model*>(robotmodel->positionmodel)),
                                               mapName("base_link", r, static_cast<Stg::Model*>(robotmodel->positionmodel))));
+        */
+
+        geometry_msgs::TransformStamped transformStamped;
+        transformStamped.header.stamp = sim_time;
+        transformStamped.header.frame_id = "base_footprint";
+        transformStamped.child_frame_id = "base_link";
+        transformStamped.transform.translation.x = 0.0;
+        transformStamped.transform.translation.y = 0.0;
+        transformStamped.transform.translation.z = 0.0;
+        tf2::Quaternion q;
+        q.setRPY(0, 0, 0);
+        transformStamped.transform.rotation.x = q.x();
+        transformStamped.transform.rotation.y = q.y();
+        transformStamped.transform.rotation.z = q.z();
+        transformStamped.transform.rotation.w = q.w();
+
+        br.sendTransform(transformStamped);
+
 
         // Get latest odometry data
         // Translate into ROS message format and publish
@@ -528,12 +565,30 @@ StageNode::WorldCallback()
         robotmodel->odom_pub.publish(odom_msg);
 
         // broadcast odometry transform
+        /*
         tf::Quaternion odomQ;
+
         tf::quaternionMsgToTF(odom_msg.pose.pose.orientation, odomQ);
         tf::Transform txOdom(odomQ, tf::Point(odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y, 0.0));
         tf.sendTransform(tf::StampedTransform(txOdom, sim_time,
                                               mapName("odom", r, static_cast<Stg::Model*>(robotmodel->positionmodel)),
                                               mapName("base_footprint", r, static_cast<Stg::Model*>(robotmodel->positionmodel))));
+        */
+
+        geometry_msgs::TransformStamped odomTransformStamped;
+        odomTransformStamped.header.stamp = sim_time;
+        odomTransformStamped.header.frame_id = "odom";
+        odomTransformStamped.child_frame_id = "base_footprint";
+        odomTransformStamped.transform.translation.x = odom_msg.pose.pose.position.x;
+        odomTransformStamped.transform.translation.y = odom_msg.pose.pose.position.y;
+        odomTransformStamped.transform.translation.z = 0.0;
+        odomTransformStamped.transform.rotation.x = odom_msg.pose.pose.orientation.x;
+        odomTransformStamped.transform.rotation.y = odom_msg.pose.pose.orientation.y;
+        odomTransformStamped.transform.rotation.z = odom_msg.pose.pose.orientation.z;
+        odomTransformStamped.transform.rotation.w = odom_msg.pose.pose.orientation.w;
+
+        br.sendTransform(odomTransformStamped);
+
 
         // Also publish the ground truth pose and velocity
         Stg::Pose gpose = robotmodel->positionmodel->GetGlobalPose();
