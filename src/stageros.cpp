@@ -396,7 +396,7 @@ StageNode::SubscribeModels()
         }
 
 	new_robot->laser_pubs.push_back(n_.advertise<sensor_msgs::LaserScan>("scan", 10));
-	new_robot->sonar_pubs.push_back(n_.advertise<sensor_msgs::Range>("ultrasonic", 10));
+	new_robot->sonar_pubs.push_back(n_.advertise<sensor_msgs::Range>("sonar", 10));
 
         this->robotmodels_.push_back(new_robot);
     }
@@ -513,6 +513,7 @@ StageNode::WorldCallback()
 
 	Stg::Pose sonarlp = robotmodel->lasermodels[1]->GetPose();
 	tf::Quaternion sonarQ;
+	//sonarQ.setRPY(0.0, 0.0, lp.a + 1.57);
 	sonarQ.setRPY(0.0, 0.0, lp.a);
 	tf::Transform txSonar =  tf::Transform(sonarQ, tf::Point(sonarlp.x, sonarlp.y, robotmodel->positionmodel->GetGeom().size.z + sonarlp.z));
 
